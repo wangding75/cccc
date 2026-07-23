@@ -332,6 +332,7 @@ def update_delivery_state(
     locked_by: Optional[str] = None,
     locked_at: Optional[str] = None,
     last_error: Optional[str] = None,
+    clear_lock: bool = False,
 ) -> Delivery:
     d = get_delivery(group, delivery_id)
     if d is None:
@@ -340,10 +341,13 @@ def update_delivery_state(
         d.state = state
     if attempts is not None:
         d.attempts = attempts
-    if locked_by is not None:
-        d.locked_by = locked_by or None
-    if locked_at is not None:
-        d.locked_at = locked_at or None
+    if clear_lock:
+        d.locked_by = None
+        d.locked_at = None
+    elif locked_by is not None:
+        d.locked_by = locked_by
+        if locked_at is not None:
+            d.locked_at = locked_at
     if last_error is not None:
         d.last_error = last_error or None
     d.updated_at = utc_now_iso()
