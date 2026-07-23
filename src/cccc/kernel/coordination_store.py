@@ -528,13 +528,16 @@ def update_session_state(
     *,
     state: Optional[RuntimeSessionState] = None,
     current_run_id: Optional[str] = None,
+    clear_current_run_id: bool = False,
 ) -> RuntimeSession:
     s = get_session(group, session_id)
     if s is None:
         raise ValueError(f"session not found: {session_id}")
     if state is not None:
         s.state = state
-    if current_run_id is not None:
+    if clear_current_run_id:
+        s.current_run_id = None
+    elif current_run_id is not None:
         s.current_run_id = current_run_id or None
     s.updated_at = utc_now_iso()
     with _LOCK:
