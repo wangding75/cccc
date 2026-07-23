@@ -3,7 +3,7 @@
 > 任务：One-shot Runner
 > 日期：2026-07-23
 > 分支：feat/new-feature
-> Commit：（见下）
+> Commit：8d0278b51b38a612be0952aba9c8a5a433e6ebf3
 > 状态：completed
 
 ---
@@ -48,6 +48,14 @@ Actor 仍是逻辑角色，不绑定长期进程。通过 command 参数注入�
 ## Git Commit
 
 `feat(cccc): complete CCCC-CORE-05 one-shot runner`
+
+## Commit Hash
+
+`8d0278b51b38a612be0952aba9c8a5a433e6ebf3`
+
+## Push 结果
+
+`8356d50e..8d0278b5 feat/new-feature -> feat/new-feature`（推送成功）
 
 ## 下一任务
 
