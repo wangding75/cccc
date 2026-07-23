@@ -336,25 +336,27 @@ class OneShotRunner:
         )
 
     def _save_artifact(self, run: Run, kind: str, data: bytes) -> int:
-        """保存原始 stdout/stderr 产物（sha256 身份，不修改内容）。"""
+        """保存原始 stdout/stderr 产物（sha256 身份，不修改内容，path 指向原始 blob）。"""
         import hashlib
 
         artifact_id = f"{run.run_id}.{kind}"
         sha256 = hashlib.sha256(data).hexdigest()
+        blob_dir = self.group.path / "state" / "coordination" / "outputs"
+        blob_dir.mkdir(parents=True, exist_ok=True)
+        rel = f"state/coordination/outputs/{artifact_id}.bin"
+        atomic_write_bytes(self.group.path / rel, data)
         store.create_artifact(
             self.group,
             RunArtifact(
                 artifact_id=artifact_id,
                 run_id=run.run_id,
                 kind=kind,  # type: ignore[arg-type]
+                path=rel,
                 sha256=sha256,
                 bytes=len(data),
+                mime_type="text/plain",
             ),
         )
-        # 写入原始内容到 blobs（不修改、不摘要）
-        blob_dir = self.group.path / "state" / "coordination" / "outputs"
-        blob_dir.mkdir(parents=True, exist_ok=True)
-        atomic_write_bytes(blob_dir / f"{artifact_id}.bin", data)
         return len(data)
 
     def _save_failed(self, run: Run, started_at: str, error_code: str, detail: str) -> None:
