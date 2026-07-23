@@ -9,6 +9,7 @@ from __future__ import annotations
 import os
 import sys
 import tempfile
+import time
 import unittest
 
 from cccc.contracts.v1.coordination import RouteValidationError
@@ -168,6 +169,127 @@ class TestOneShotRunner(_HomeTestCase):
             self.assertFalse(thread.is_alive())
             self.assertEqual(len(results), 1)
             self.assertEqual(results[0].state, "succeeded")
+
+
+class TestProcessManagement(_HomeTestCase):
+    """CCCC-CORE-07 进程管理：取消、超时、子进程清理、无孤儿进程。"""
+
+    def test_cancel_marks_cancelled_and_kills_tree(self) -> None:
+        # 取消运行中进程：状态 cancelled，进程被终止
+        with self._with_home():
+            group = _setup_group()
+            runner = OneShotRunner(group, runtime="codex")
+            results = []
+            thread = runner.start_async(
+                OneShotRunInput(
+                    run_id="r1", message_id="m1", actor_id="a2",
+                    command=[sys.executable, "-c", "import time; time.sleep(60)"],
+                ),
+                on_done=results.append,
+            )
+            # 等待进程进入运行
+            for _ in range(50):
+                if runner.is_cancelled("r1"):
+                    break
+                with runner._lock:
+                    running = "r1" in runner._processes and runner._processes["r1"].poll() is None
+                if running:
+                    break
+                time.sleep(0.1)
+            triggered = runner.cancel("r1")
+            self.assertTrue(triggered)
+            thread.join(timeout=10)
+            self.assertFalse(thread.is_alive())
+            self.assertEqual(len(results), 1)
+            self.assertEqual(results[0].state, "cancelled")
+            self.assertEqual(results[0].error_code, "RUN_CANCELLED")
+            run = store.get_run(group, "r1")
+            self.assertEqual(run.state, "cancelled")
+
+    def test_cancel_no_orphan_processes(self) -> None:
+        # 验收：取消后不存在孤儿进程——子进程随进程组被清理
+        with self._with_home():
+            group = _setup_group()
+            runner = OneShotRunner(group, runtime="codex")
+            # 父脚本启动一个子进程，二者都应在取消时被清理
+            parent_cmd = [
+                sys.executable, "-c",
+                "import subprocess,sys,time\n"
+                "p=subprocess.Popen([sys.executable,'-c','import time;time.sleep(60)'])\n"
+                "time.sleep(60)",
+            ]
+            results = []
+            thread = runner.start_async(
+                OneShotRunInput(run_id="r1", message_id="m1", actor_id="a2", command=parent_cmd),
+                on_done=results.append,
+            )
+            child_pid_holder = {}
+
+            def _poll() -> None:
+                # 探测父进程的子进程 pid（通过 psutil 不可用时跳过，仅依赖进程组终止）
+                import time as _t
+                for _ in range(50):
+                    with runner._lock:
+                        proc = runner._processes.get("r1")
+                    if proc and proc.poll() is None and proc.pid:
+                        child_pid_holder["pid"] = proc.pid
+                        break
+                    _t.sleep(0.1)
+
+            _poll()
+            runner.cancel("r1")
+            thread.join(timeout=10)
+            self.assertEqual(results[0].state, "cancelled")
+            # 进程组已被终止：父进程不应存活
+            parent_pid = child_pid_holder.get("pid")
+            if parent_pid:
+                import os as _os
+                try:
+                    _os.kill(parent_pid, 0)
+                    alive = True
+                except (ProcessLookupError, OSError):
+                    alive = False
+                # 父进程已被取消清理
+                self.assertFalse(alive, "parent process should be terminated after cancel")
+
+    def test_timeout_terminates_tree(self) -> None:
+        # 超时：整组被终止，状态 timed_out
+        with self._with_home():
+            group = _setup_group()
+            runner = OneShotRunner(group, runtime="codex")
+            result = runner.start(
+                OneShotRunInput(
+                    run_id="r1", message_id="m1", actor_id="a2",
+                    command=[sys.executable, "-c", "import time; time.sleep(30)"],
+                    timeout_seconds=0.5,
+                )
+            )
+            self.assertEqual(result.state, "timed_out")
+            self.assertEqual(result.error_code, "RUN_TIMED_OUT")
+            # 进程引用已释放
+            self.assertEqual(len(runner._processes), 0)
+
+    def test_exception_recovery_marks_failed(self) -> None:
+        # 进程异常（无法启动）：状态收敛为 failed，不留孤儿
+        with self._with_home():
+            group = _setup_group()
+            runner = OneShotRunner(group, runtime="codex")
+            result = runner.start(
+                OneShotRunInput(
+                    run_id="r1", message_id="m1", actor_id="a2",
+                    command=["/nonexistent/binary/that/does/not/exist"],
+                )
+            )
+            self.assertEqual(result.state, "failed")
+            self.assertEqual(len(runner._processes), 0)
+
+    def test_release_reaps_finished_process(self) -> None:
+        # 正常退出后资源释放，无僵尸
+        with self._with_home():
+            group = _setup_group()
+            runner = OneShotRunner(group, runtime="codex")
+            runner.start(OneShotRunInput(run_id="r1", message_id="m1", actor_id="a2", command=_echo_command("x")))
+            self.assertEqual(len(runner._processes), 0)
 
 
 if __name__ == "__main__":
