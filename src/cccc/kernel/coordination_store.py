@@ -416,6 +416,9 @@ def list_runs(
     if actor_id is None and message_id is None and session_id is None:
         out: List[Run] = []
         for p in sorted(_runs_dir(group).glob("*.json")):
+            # 跳过非 Run 记录文件（如 <run>.input.json 输入快照、<run>.events.jsonl）
+            if p.name.endswith(".input.json"):
+                continue
             r = get_run(group, p.stem)
             if r is not None:
                 out.append(r)

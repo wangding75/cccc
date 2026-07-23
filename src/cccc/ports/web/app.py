@@ -506,6 +506,7 @@ def create_app() -> FastAPI:
     from .routes.access_tokens import create_routers as create_access_token_routers
     from .routes.group_bridge import create_routers as create_group_bridge_routers
     from .routes.nomcp import create_routers as create_nomcp_routers
+    from .routes.coordination import register_coordination_routes
 
     route_ctx = RouteContext(
         home=home,
@@ -535,5 +536,6 @@ def create_app() -> FastAPI:
         app.include_router(router)
     for router in create_nomcp_routers(route_ctx):
         app.include_router(router)
+    register_coordination_routes(app, ctx=route_ctx)
 
     return app
