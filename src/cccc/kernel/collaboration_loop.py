@@ -219,27 +219,43 @@ def execute_instruction(
 
     支持继续 Session：传入已存在的 session_id 则复用上下文；为空则创建新会话。
     Run 关系保存：run.message_id = task_message.message_id，run.session_id = session_id。
+
+    执行前会从持久化层重新校验 Delivery、TaskMessage、Actor 和锁所有权；
+    所有授权失败发生在创建 Session、Run 或进程之前。
     """
+    from .execution_authorizer import authorize_delivery_execution
     from .one_shot_runner import OneShotRunInput, OneShotRunner
     from .output_capture import capture_run_output
 
+    # 从持久化层重新读取并校验执行授权（任何失败都不创建状态）
+    delivery_id = f"dv.{task_message.message_id}"
+    auth = authorize_delivery_execution(
+        group,
+        delivery_id=delivery_id,
+        actor_id=peer_actor_id,
+        consumer_id=consumer_id,
+    )
+    # 重新读取权威 TaskMessage，以持久化层为准
+    authorized_tm = get_task_message(group, auth.message_id)
+    assert authorized_tm is not None
+
     # 1. Session：继续或新建
     if session_id:
-        session = resume_session(group, session_id=session_id, actor_id=peer_actor_id, runtime=runtime, work_dir=cwd)
+        session = resume_session(group, session_id=session_id, actor_id=auth.peer_actor_id, runtime=runtime, work_dir=cwd)
     else:
         session_id = f"ses.{run_id}"
         session = create_session(
-            group, session_id=session_id, owner_actor_id=peer_actor_id,
+            group, session_id=session_id, owner_actor_id=auth.peer_actor_id,
             runtime=runtime, work_dir=cwd, execution_mode="one_shot",
         )
-    acquire_session_for_run(group, session_id=session_id, run_id=run_id, actor_id=peer_actor_id, runtime=runtime, work_dir=cwd)
+    acquire_session_for_run(group, session_id=session_id, run_id=run_id, actor_id=auth.peer_actor_id, runtime=runtime, work_dir=cwd)
 
     # 2. Run
     runner = OneShotRunner(group, runtime=runtime or "one_shot")
     run_input = OneShotRunInput(
         run_id=run_id,
-        message_id=task_message.message_id,
-        actor_id=peer_actor_id,
+        message_id=authorized_tm.message_id,
+        actor_id=auth.peer_actor_id,
         command=command,
         cwd=cwd,
         env=env or {},
@@ -260,10 +276,9 @@ def execute_instruction(
     release_session(group, session_id=session_id, failed=(run.state == "failed"))
 
     # 5. ack 投递（消费完成）
-    delivery_id = f"dv.{task_message.message_id}"
-    if store.get_delivery(group, delivery_id) is not None and consumer_id:
+    if store.get_delivery(group, auth.delivery_id) is not None and auth.consumer_id:
         try:
-            ack_delivery(group, delivery_id, consumer_id=consumer_id)
+            ack_delivery(group, auth.delivery_id, consumer_id=auth.consumer_id)
         except Exception:
             pass
 
