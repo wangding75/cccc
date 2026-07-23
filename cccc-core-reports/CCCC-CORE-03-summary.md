@@ -3,7 +3,7 @@
 > 任务：路由控制
 > 日期：2026-07-23
 > 分支：feat/new-feature
-> Commit：（见下）
+> Commit：94fc49d2cbfa2a344a1bb31cb7d618511fe719d1
 > 状态：completed
 
 ---
@@ -44,6 +44,14 @@ Group 关系、角色通信规则（foreman↔peer 定向，禁止 peer→peer/�
 ## Git Commit
 
 `feat(cccc): complete CCCC-CORE-03 route control`
+
+## Commit Hash
+
+`94fc49d2cbfa2a344a1bb31cb7d618511fe719d1`
+
+## Push 结果
+
+`50b230c8..94fc49d2 feat/new-feature -> feat/new-feature`（推送成功）
 
 ## 下一任务
 
